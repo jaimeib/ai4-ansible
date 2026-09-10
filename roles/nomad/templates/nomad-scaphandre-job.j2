@@ -34,6 +34,12 @@ job "scaphandre" {
         args    = ["--vm", "prometheus", "--containers", "--port", "9401"]
       }
 
+      env {
+        # Redeploy trigger: changes whenever the installed package changes, so
+        # Nomad re-execs the new /usr/bin/scaphandre on every node.
+        PKG_REV = "{{ scaphandre_local_pkg | default('upstream-' + scaphandre_version, true) }}"
+      }
+
       resources {
         cpu    = 100
         memory = 512

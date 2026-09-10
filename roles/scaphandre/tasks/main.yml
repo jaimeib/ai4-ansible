@@ -24,16 +24,37 @@
     msg: "WARNING: {{ scaphandre_mount_point }} is not a mountpoint. Virtiofs did not mount correctly."
   when: scaphandre_mountpoint.rc != 0
 
-- name: "Download Scaphandre .deb package"
+# Per-host filename for the locally-built package (only used when scaphandre_local_pkg
+# is set): scaphandre_<revision>_ubuntu<major><minor>_amd64.deb, e.g.
+# scaphandre_1.0.2-ifca-advanced-computing2_ubuntu2204_amd64.deb
+- name: "Resolve Scaphandre package filename"
+  ansible.builtin.set_fact:
+    scaphandre_deb_file: >-
+      {%- if scaphandre_local_pkg -%}
+      scaphandre_{{ scaphandre_local_pkg }}_ubuntu{{ ansible_distribution_version | replace('.', '') }}_amd64.deb
+      {%- else -%}
+      scaphandre_{{ scaphandre_version }}.deb
+      {%- endif -%}
+
+- name: "Download upstream Scaphandre .deb package"
   ansible.builtin.get_url:
     url: "https://github.com/hubblo-org/scaphandre/releases/download/v{{ scaphandre_version }}/scaphandre_v{{ scaphandre_version }}-{{ scaphandre_deb_suffix }}_amd64.deb"
-    dest: "/tmp/scaphandre_{{ scaphandre_version }}.deb"
+    dest: "/tmp/{{ scaphandre_deb_file }}"
     mode: '0640'
+  when: not scaphandre_local_pkg
 
-# Note: the .deb's internal version label is "0.5.0-1" even for binary 1.0.2
-# (known upstream packaging bug) - apt will compare against that label, not
-# against the real scaphandre --version output, but it's stable across runs.
+- name: "Copy locally-built (patched) Scaphandre .deb package"
+  ansible.builtin.copy:
+    src: "{{ scaphandre_deb_file }}"
+    dest: "/tmp/{{ scaphandre_deb_file }}"
+    mode: '0640'
+  when: scaphandre_local_pkg | length > 0
+
+# The upstream .deb has a wrong internal version label ("0.5.0-1", a known
+# packaging bug); a locally-built package (scaphandre_local_pkg) carries a real
+# Version, so apt compares against that and re-runs are a no-op unless the
+# package Version actually changes.
 - name: "Install Scaphandre .deb package"
   ansible.builtin.apt:
-    deb: "/tmp/scaphandre_{{ scaphandre_version }}.deb"
+    deb: "/tmp/{{ scaphandre_deb_file }}"
     state: present

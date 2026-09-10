@@ -97,6 +97,13 @@ gpu_alloc_mapper_script_path: /opt/nomad-scripts/nomad_gpu_alloc_mapper.py
 
 # -- Scaphandre Agent (CPU power monitoring)
 scaphandre_enabled: false
+# Temporary override: install a locally-built (patched) package from
+# roles/scaphandre/files/ instead of the upstream GitHub release, while the
+# upstream fix is not released. Value is the package revision (control-file
+# Version); the per-host .deb is scaphandre_<revision>_ubuntu<ver>_amd64.deb.
+# Clear it (and bump scaphandre_version) to return to the official release.
+# See docs/platform-power-monitoring.md.
+scaphandre_local_pkg: "1.0.2-ifca-advanced-computing2"
 
 # -- Alloy metrics sidecar (push mode: scrape local exporter, remote_write to Mimir)
 # Independent of alloy_enabled (Alloy/Loki logs above) -- that flag only controls

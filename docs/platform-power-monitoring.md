@@ -72,7 +72,7 @@ When `scaphandre_enabled: true`, `roles/nomad/tasks/main.yml` runs the `scaphand
 
 1. Mounts the virtiofs share read-only, persistently, at `scaphandre_mount_point` (default `/var/scaphandre`, matches Scaphandre's own default `--vm` lookup path) with tag `scaphandre_virtiofs_tag` (default `scaphandre`, must match the hypervisor-side `<target dir='...'>` above).
 2. Warns (but does not fail) if the mount ends up empty: that means the hypervisor-side export isn't wired up for that VM.
-3. Downloads and installs the Scaphandre `.deb` (`scaphandre_version`, default `1.0.2`, suffix `scaphandre_deb_suffix`, default `deb12`).
+3. Downloads and installs the Scaphandre `.deb` (`scaphandre_version`, default `1.0.2`, suffix `scaphandre_deb_suffix`, default `deb12`), unless `scaphandre_local_pkg` is set, in which case a locally-built package is installed from `roles/scaphandre/files/` instead (see [Patched / locally-built Scaphandre](#patched--locally-built-scaphandre)).
 
 `nomad_client.j2` then tags the client with `meta.scaphandre = "true"` when `scaphandre_enabled` is set, and the `scaphandre` Nomad job (`nomad-scaphandre-job.j2`) is a `type = "system"` job scoped to `datacenters = ["{{ consul_dc_name }}"]` and constrained to `${meta.scaphandre} == "true"`, running Scaphandre via `raw_exec`:
 
@@ -83,6 +83,17 @@ scaphandre --vm prometheus --containers --port 9401
 > ⓘ Empirically, Scaphandre needs **~512 MiB** memory in this raw_exec task (real RSS ~180 MiB, but its many threads' kernel stacks push the cgroup charge higher); `memory = 64` gets OOM-killed. The Nomad cluster does not have memory oversubscription enabled, so `memory_max` is ignored: always size the hard `memory` reservation directly.
 
 > ⚠ The host-prep step (mount + package install) is **not** currently restricted to `nomad_clients`: it runs on every host in the play when `scaphandre_enabled: true`, including `nomad_servers`. Servers have no `client` stanza (`nomad_server.j2` never sets `meta.scaphandre`), so the Nomad job constraint will never schedule there. The extra mount/install on servers is harmless but wasted work.
+
+### Patched / locally-built Scaphandre
+
+When upstream is broken and you need a package that is not published on GitHub (a local build with a patch applied):
+
+1. Build the `.deb`(s) with a **real, distinct `Version`** in the control file (e.g. `1.0.2-ifca-advanced-computing2`), and bump it on every rebuild. `apt` compares against that `Version`, so without a bump the nodes won't pick up the new binary. Name the artifacts `scaphandre_<revision>_ubuntu<major><minor>_amd64.deb`, one per Ubuntu release in the fleet (e.g. `..._ubuntu2204_amd64.deb`, `..._ubuntu2404_amd64.deb`).
+2. Drop the files in `roles/scaphandre/files/` (they go into git; ~2.4 MB each).
+3. Set `scaphandre_local_pkg` to the revision string (currently in `group_vars/all.yml`). While it is set, the upstream `get_url` download is skipped and the per-host file `scaphandre_<revision>_ubuntu<ansible_distribution_version>_amd64.deb` is installed instead.
+4. The Scaphandre Nomad job template embeds `scaphandre_local_pkg` as a task `env` var (`PKG_REV`), so bumping the revision re-renders the job spec and `roles/nomad/tasks/run_scaphandre_job.yml` redeploys the `system` job, making every alloc re-exec the new `/usr/bin/scaphandre`. Include the `nomad_master` host in the run (a client-only `--limit` updates the binary but won't redeploy the job).
+
+To return to upstream: clear `scaphandre_local_pkg`, bump `scaphandre_version` to the fixed release, and `git rm` the vendored `.deb`s.
 
 ## 2. GPU power: dcgm-exporter
 
