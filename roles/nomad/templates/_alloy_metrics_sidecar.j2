@@ -43,12 +43,12 @@ prometheus.scrape "{{ alloy_metrics_component | replace("-", "_") }}" {
 prometheus.relabel "keep" {
   forward_to = [prometheus.remote_write.mimir.receiver]
 
-  # Some containers (e.g. Nuclio, or anything carrying Kubernetes-style
-  # dotted/slashed annotation labels) expose label values well beyond
-  # Mimir's max label value length, which makes the whole remote_write batch
-  # they're bundled in fail with a 400 -- silently dropping every series in
-  # that batch, unrelated ones included. Strip the known offenders before
-  # they can poison a push; harmless no-op on hosts that never emit them.
+  // Some containers (e.g. Nuclio, or anything carrying Kubernetes-style
+  // dotted/slashed annotation labels) expose label values well beyond
+  // Mimir's max label value length, which makes the whole remote_write batch
+  // they're bundled in fail with a 400 -- silently dropping every series in
+  // that batch, unrelated ones included. Strip the known offenders before
+  // they can poison a push; harmless no-op on hosts that never emit them.
   rule {
     regex  = "container_label_nuclio_io_annotations|container_label_nuclio_io_function_spec"
     action = "labeldrop"
