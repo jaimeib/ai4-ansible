@@ -7,7 +7,7 @@
   register: create_gpu_alloc_mapper_job
 
 - name: "Check if gpu-alloc-mapper job is already registered"
-  command: nomad job status -short gpu-alloc-mapper
+  command: nomad job status -short gpu-alloc-mapper-{{ consul_dc_name }}
   register: gpu_alloc_mapper_job_status
   changed_when: false
   failed_when: false

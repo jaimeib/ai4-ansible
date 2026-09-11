@@ -8,7 +8,7 @@ This adds CPU and GPU power-consumption metrics to the platform, plus a way to a
 | `dcgm-exporter`    | GPU power/energy counters           | Nomad GPU clients with `meta.dcgm_exporter = "true"` (and `meta.tags = "gpu"`)   | `9400`        |
 | `gpu-alloc-mapper` | GPU UUID → Nomad `alloc_id` mapping | Nomad GPU clients with `meta.gpu_alloc_mapper = "true"` (and `meta.tags = "gpu"`) | `9402`        |
 
-All three jobs share their job ID with every other federated site (same Nomad namespace/region across the whole federation, not one Nomad cluster per site), so `datacenters` can't be used to scope a job to "this site": the last site to `nomad job run` it would own the job and evict every other site's allocations. They set `datacenters = ["*"]` instead, and rely entirely on the `meta.*` constraints below for per-site/per-node placement. The `meta.*` gates are emitted by `nomad_client.j2` only when the matching feature flag is `true`, so disabling a flag and re-running the playbook drains the job on that site's nodes (no eligible nodes left there) instead of leaving it running.
+All three jobs use a per-site job ID (`<job>-{{ consul_dc_name }}`, e.g. `scaphandre-ifca-ai4eosc`): this namespace/region is shared across the whole federation (not one Nomad cluster per site), so a bare job ID would collide across sites and `datacenters = ["{{ consul_dc_name }}"]` alone wouldn't be enough to keep them isolated -- the last site to `nomad job run` a shared ID would own the job (and its `datacenters` value) and evict every other site's allocations. Keeping the ID unique per site also keeps each site's alloy-metrics sidecar Mimir credentials (see [Alloy metrics sidecar](#4-alloy-metrics-sidecar-optional)) genuinely site-local, since those are baked into the job spec at Ansible-render time, not resolved per-node. Node placement within a site is still gated by the `meta.*` constraints below. The `meta.*` gates are emitted by `nomad_client.j2` only when the matching feature flag is `true`, so disabling a flag and re-running the playbook drains that site's job (no eligible nodes left) instead of leaving it running.
 
 Each job can optionally run a per-job [Alloy](https://grafana.com/docs/alloy/latest/) sidecar task that scrapes its own exporter and `remote_write` straight to Mimir, independent of the host-wide Alloy **log** shipping already deployed by this repo (`alloy_enabled`, see [`roles/alloy`](../roles/alloy)).
 
@@ -74,7 +74,7 @@ When `scaphandre_enabled: true`, `roles/nomad/tasks/main.yml` runs the `scaphand
 2. Warns (but does not fail) if the mount ends up empty: that means the hypervisor-side export isn't wired up for that VM.
 3. Downloads and installs the Scaphandre `.deb` (`scaphandre_version`, default `1.0.2`, suffix `scaphandre_deb_suffix`, default `deb12`), unless `scaphandre_local_pkg` is set, in which case a locally-built package is installed from `roles/scaphandre/files/` instead (see [Patched / locally-built Scaphandre](#patched--locally-built-scaphandre)).
 
-`nomad_client.j2` then tags the client with `meta.scaphandre = "true"` when `scaphandre_enabled` is set, and the `scaphandre` Nomad job (`nomad-scaphandre-job.j2`) is a `type = "system"` job scoped to `datacenters = ["*"]` and constrained to `${meta.scaphandre} == "true"`, running Scaphandre via `raw_exec`:
+`nomad_client.j2` then tags the client with `meta.scaphandre = "true"` when `scaphandre_enabled` is set, and the `scaphandre` Nomad job (`nomad-scaphandre-job.j2`) is a `type = "system"` job with a per-site ID, scoped to `datacenters = ["{{ consul_dc_name }}"]` and constrained to `${meta.scaphandre} == "true"`, running Scaphandre via `raw_exec`:
 
 ```
 scaphandre --vm prometheus --containers --port 9401
@@ -104,7 +104,7 @@ DCGM_FI_DEV_POWER_USAGE,              gauge,   Power draw in watts
 DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumption in mJ since last driver reload
 ```
 
-`nomad_client.j2` tags GPU clients with `meta.dcgm_exporter = "true"` when `dcgm_exporter_enabled` is set. The `dcgm-exporter` Nomad job (`nomad-dcgm-exporter-job.j2`) is a `type = "system"` job scoped to `datacenters = ["*"]` and constrained to `${meta.tags} == "gpu"` **and** `${meta.dcgm_exporter} == "true"`, running the image via Docker with `runtime = "nvidia"` and `network_mode = "host"`, bind-mounting the counters CSV in.
+`nomad_client.j2` tags GPU clients with `meta.dcgm_exporter = "true"` when `dcgm_exporter_enabled` is set. The `dcgm-exporter` Nomad job (`nomad-dcgm-exporter-job.j2`) is a `type = "system"` job with a per-site ID, scoped to `datacenters = ["{{ consul_dc_name }}"]` and constrained to `${meta.tags} == "gpu"` **and** `${meta.dcgm_exporter} == "true"`, running the image via Docker with `runtime = "nvidia"` and `network_mode = "host"`, bind-mounting the counters CSV in.
 
 > ⓘ Neither of these two counters needs the `SYS_ADMIN` capability (only DCP profiling fields like `DCGM_FI_PROF_*` do), and the Nomad `docker` plugin here has `allow_privileged = true` but no `allow_caps`, so `cap_add = ["SYS_ADMIN"]` would be rejected anyway. Needs **~1024 MiB** memory (steady ~416 MiB; `memory = 256` gets OOM-killed). The counters file must exist as a file on the host _before_ the container starts, or Docker auto-creates the bind-mount target as a directory and the mount fails.
 
@@ -124,7 +124,7 @@ Join it with DCGM's power metric in PromQL:
 DCGM_FI_DEV_POWER_USAGE * on(UUID) group_left(alloc_id) nomad_gpu_allocation_info
 ```
 
-`roles/nomad/tasks/gpu_alloc_mapper.yml` stages the script (mode `0755`) at `gpu_alloc_mapper_script_path` (default `/opt/nomad-scripts/nomad_gpu_alloc_mapper.py`) on GPU clients when `gpu_alloc_mapper_enabled: true`. `nomad_client.j2` tags GPU clients with `meta.gpu_alloc_mapper = "true"` when `gpu_alloc_mapper_enabled` is set. The Nomad job (`nomad-gpu-alloc-mapper-job.j2`) runs it via `raw_exec` (`python3 <script>`), `system` type, scoped to `datacenters = ["*"]` and constrained to `${meta.tags} == "gpu"` **and** `${meta.gpu_alloc_mapper} == "true"`.
+`roles/nomad/tasks/gpu_alloc_mapper.yml` stages the script (mode `0755`) at `gpu_alloc_mapper_script_path` (default `/opt/nomad-scripts/nomad_gpu_alloc_mapper.py`) on GPU clients when `gpu_alloc_mapper_enabled: true`. `nomad_client.j2` tags GPU clients with `meta.gpu_alloc_mapper = "true"` when `gpu_alloc_mapper_enabled` is set. The Nomad job (`nomad-gpu-alloc-mapper-job.j2`) runs it via `raw_exec` (`python3 <script>`), `system` type with a per-site ID, scoped to `datacenters = ["{{ consul_dc_name }}"]` and constrained to `${meta.tags} == "gpu"` **and** `${meta.gpu_alloc_mapper} == "true"`.
 
 ## 4. Alloy metrics sidecar (optional)
 

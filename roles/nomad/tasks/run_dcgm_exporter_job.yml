@@ -7,7 +7,7 @@
   register: create_dcgm_exporter_job
 
 - name: "Check if dcgm-exporter job is already registered"
-  command: nomad job status -short dcgm-exporter
+  command: nomad job status -short dcgm-exporter-{{ consul_dc_name }}
   register: dcgm_exporter_job_status
   changed_when: false
   failed_when: false

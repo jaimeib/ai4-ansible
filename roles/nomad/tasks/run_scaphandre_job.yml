@@ -7,7 +7,7 @@
   register: create_scaphandre_job
 
 - name: "Check if scaphandre job is already registered"
-  command: nomad job status -short scaphandre
+  command: nomad job status -short scaphandre-{{ consul_dc_name }}
   register: scaphandre_job_status
   changed_when: false
   failed_when: false

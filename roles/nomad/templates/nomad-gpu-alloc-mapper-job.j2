@@ -1,14 +1,14 @@
-job "gpu-alloc-mapper" {
+job "gpu-alloc-mapper-{{ consul_dc_name }}" {
   namespace = "default"
   type        = "system"
   region      = "{{ nomad_region }}"
-  # Wildcard, not just this site's DC: this job ID is shared across every
-  # federated site (same namespace/region). Scoping it to one DC means
-  # whichever site last ran `nomad job run` would own the job and evict
-  # every other site's allocations. Actual per-node placement is still gated
-  # by the constraints below.
-  datacenters = ["*"]
-  id          = "gpu-alloc-mapper"
+  # Per-site job ID: this namespace/region is shared across every federated
+  # site, so a bare "gpu-alloc-mapper" ID here would collide across sites.
+  # Keeping the ID unique per site also keeps this job's datacenters scoping
+  # and its alloy-metrics sidecar's Mimir credentials (baked in at
+  # Ansible-render time, not resolved per-node) genuinely site-local.
+  datacenters = ["{{ consul_dc_name }}"]
+  id          = "gpu-alloc-mapper-{{ consul_dc_name }}"
   priority    = "75"
 
   constraint {
