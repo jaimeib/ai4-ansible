@@ -37,23 +37,31 @@ prometheus.scrape "{{ alloy_metrics_component | replace("-", "_") }}" {
     "datacenter"  = "{{ consul_dc_name }}",
     "node"        = "{% raw %}{{ env "NODE_NAME" }}{% endraw %}",
   }]
-{% if alloy_metrics_keep_regex is defined and alloy_metrics_keep_regex %}
   forward_to = [prometheus.relabel.keep.receiver]
 }
 
 prometheus.relabel "keep" {
   forward_to = [prometheus.remote_write.mimir.receiver]
 
+  # Some containers (e.g. Nuclio, or anything carrying Kubernetes-style
+  # dotted/slashed annotation labels) expose label values well beyond
+  # Mimir's max label value length, which makes the whole remote_write batch
+  # they're bundled in fail with a 400 -- silently dropping every series in
+  # that batch, unrelated ones included. Strip the known offenders before
+  # they can poison a push; harmless no-op on hosts that never emit them.
+  rule {
+    regex  = "container_label_nuclio_io_annotations|container_label_nuclio_io_function_spec"
+    action = "labeldrop"
+  }
+
+{% if alloy_metrics_keep_regex is defined and alloy_metrics_keep_regex %}
   rule {
     source_labels = {{ (alloy_metrics_keep_source_labels | default(["__name__"])) | to_json }}
     regex         = "{{ alloy_metrics_keep_regex }}"
     action        = "keep"
   }
-}
-{% else %}
-  forward_to = [prometheus.remote_write.mimir.receiver]
-}
 {% endif %}
+}
 
 prometheus.remote_write "mimir" {
   endpoint {
