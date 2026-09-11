@@ -43,17 +43,6 @@ prometheus.scrape "{{ alloy_metrics_component | replace("-", "_") }}" {
 prometheus.relabel "keep" {
   forward_to = [prometheus.remote_write.mimir.receiver]
 
-  // Some containers (e.g. Nuclio, or anything carrying Kubernetes-style
-  // dotted/slashed annotation labels) expose label values well beyond
-  // Mimir's max label value length, which makes the whole remote_write batch
-  // they're bundled in fail with a 400 -- silently dropping every series in
-  // that batch, unrelated ones included. Strip the known offenders before
-  // they can poison a push; harmless no-op on hosts that never emit them.
-  rule {
-    regex  = "container_label_nuclio_io_annotations|container_label_nuclio_io_function_spec"
-    action = "labeldrop"
-  }
-
 {% if alloy_metrics_keep_regex is defined and alloy_metrics_keep_regex %}
   rule {
     source_labels = {{ (alloy_metrics_keep_source_labels | default(["__name__"])) | to_json }}
@@ -61,6 +50,21 @@ prometheus.relabel "keep" {
     action        = "keep"
   }
 {% endif %}
+
+  // Federation-wide safelist: any container can expose arbitrary Docker
+  // labels (OCI image metadata, build info, vendor tags, ...), and any one
+  // of those can carry a value long enough to make Mimir reject the whole
+  // remote_write batch it's bundled in with a 400 -- silently dropping every
+  // series in that batch, unrelated ones included (this has already
+  // happened with Nuclio's annotation/spec labels). Rather than reactively
+  // blacklisting bad labels as we find them, keep only the labels we
+  // actually query on; everything else -- known or not yet seen -- is
+  // dropped by default. Add to this list deliberately, not to unblock a
+  // one-off dashboard need.
+  rule {
+    regex  = "__name__|datacenter|instance|job|node|UUID|alloc_id|container_id|container_names|Hostname|device|gpu|modelName|pci_bus_id|pid|container_label_com_hashicorp_nomad_alloc_id"
+    action = "labelkeep"
+  }
 }
 
 prometheus.remote_write "mimir" {
