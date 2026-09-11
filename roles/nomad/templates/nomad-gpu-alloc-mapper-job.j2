@@ -2,7 +2,12 @@ job "gpu-alloc-mapper" {
   namespace = "default"
   type        = "system"
   region      = "{{ nomad_region }}"
-  datacenters = ["{{ consul_dc_name }}"]
+  # Wildcard, not just this site's DC: this job ID is shared across every
+  # federated site (same namespace/region). Scoping it to one DC means
+  # whichever site last ran `nomad job run` would own the job and evict
+  # every other site's allocations. Actual per-node placement is still gated
+  # by the constraints below.
+  datacenters = ["*"]
   id          = "gpu-alloc-mapper"
   priority    = "75"
 
