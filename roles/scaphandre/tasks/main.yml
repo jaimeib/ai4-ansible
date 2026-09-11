@@ -15,6 +15,13 @@
     mode: '0750'
   when: scaphandre_premount_check.rc != 0
 
+# This role runs on every host in the play, including nomad_servers, which
+# have no virtiofs share wired up at the hypervisor (they never run the
+# scaphandre job either -- see the "Warn if not mounted" task below). Without
+# ignore_errors, the immediate mount attempt failing here (e.g. "wrong fs
+# type") is fatal and skips the rest of the play for that host, including
+# job registration -- `opts: ro,nofail` only makes it non-fatal at boot time,
+# not for this task.
 - name: "Mount Scaphandre virtiofs share (persistent, read-only)"
   mount:
     path: "{{ scaphandre_mount_point }}"
@@ -22,6 +29,7 @@
     fstype: virtiofs
     opts: ro,nofail
     state: mounted
+  ignore_errors: true
 
 - name: "Check Scaphandre virtiofs share is mounted"
   ansible.builtin.command: "mountpoint -q {{ scaphandre_mount_point }}"
