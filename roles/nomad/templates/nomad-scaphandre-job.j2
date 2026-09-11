@@ -36,8 +36,11 @@ job "scaphandre" {
 
       env {
         # Redeploy trigger: changes whenever the installed package changes, so
-        # Nomad re-execs the new /usr/bin/scaphandre on every node.
-        PKG_REV = "{{ scaphandre_local_pkg | default('upstream-' + scaphandre_version, true) }}"
+        # Nomad re-execs the new /usr/bin/scaphandre on every node. Note:
+        # scaphandre_version (the upstream release) is a scaphandre role
+        # default, not in scope here (this template is rendered by the nomad
+        # role) -- keep the fallback branch free of that variable.
+        PKG_REV = "{{ scaphandre_local_pkg | default('upstream', true) }}"
       }
 
       resources {
