@@ -103,7 +103,7 @@ scaphandre_enabled: false
 # Version); the per-host .deb is scaphandre_<revision>_ubuntu<ver>_amd64.deb.
 # Clear it (and bump scaphandre_version) to return to the official release.
 # See docs/platform-power-monitoring.md.
-scaphandre_local_pkg: "1.0.3-ifca-advanced-computing4"
+scaphandre_local_pkg: "1.0.3-ifca-advanced-computing5"
 
 # -- Alloy metrics sidecar (push mode: scrape local exporter, remote_write to Mimir)
 # Independent of alloy_enabled (Alloy/Loki logs above) -- that flag only controls
